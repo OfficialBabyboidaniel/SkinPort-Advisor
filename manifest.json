@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Advisor",
+  "version": "1.0.0",
+  "description": "Price advisor for your Skinport listings. Compares your prices vs market data and your buy prices from Google Sheets.",
+  "permissions": ["identity", "storage", "tabs"],
+  "host_permissions": [
+    "https://api.skinport.com/*",
+    "https://skinport.com/*",
+    "https://sheets.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "650544767085-frhankjq4n3o74mb038h4db52sg3sujh.apps.googleusercontent.com",
+    "scopes": ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Skinport Advisor"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": []
+}

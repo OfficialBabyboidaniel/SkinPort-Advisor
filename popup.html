@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skinport Advisor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 860px;
+      min-height: 200px;
+      max-height: 760px;
+      background: #1a1d1e;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: #232728;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #2f3334;
+      flex-shrink: 0;
+    }
+    .header-left { display: flex; align-items: center; gap: 8px; }
+    .logo { font-size: 16px; font-weight: 700; color: #4db5da; letter-spacing: -0.3px; }
+    .version { font-size: 10px; color: #666; }
+
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; flex-shrink: 0; }
+    .dot.green  { background: #4caf50; }
+    .dot.yellow { background: #ffc107; }
+    .dot.red    { background: #f44336; }
+    .status-text { font-size: 11px; color: #aaa; }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      background: #232728;
+      border-bottom: 1px solid #2f3334;
+      flex-shrink: 0;
+    }
+    .tab {
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 12px;
+      color: #888;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .tab:hover { color: #ccc; }
+    .tab.active { color: #4db5da; border-bottom-color: #4db5da; }
+
+    /* ── Content panels ── */
+    .panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+    .panel.active { display: flex; }
+
+    /* ── Advisor panel ── */
+    .advisor-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #1e2122;
+      border-bottom: 1px solid #2a2d2e;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 5px 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary  { background: #4db5da; color: #111; }
+    .btn-secondary{ background: #2f3334; color: #ccc; }
+    .btn-danger   { background: #c0392b; color: #fff; }
+    .btn:not(:disabled):hover { opacity: 0.85; }
+
+    .sort-select {
+      background: #2f3334;
+      border: 1px solid #3a3d3e;
+      border-radius: 4px;
+      color: #ccc;
+      font-size: 12px;
+      padding: 4px 8px;
+      cursor: pointer;
+      outline: none;
+    }
+    .sort-select:focus { border-color: #4db5da; }
+    .sort-select option { background: #2a2d2e; }
+
+    .toolbar-stats {
+      margin-left: auto;
+      display: flex;
+      gap: 14px;
+      font-size: 11px;
+      color: #888;
+    }
+    .stat-val { color: #ccc; font-weight: 600; }
+
+    /* ── Results table ── */
+    .results-wrap {
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 160px;
+      color: #555;
+      gap: 8px;
+    }
+    .empty-state .icon { font-size: 32px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      table-layout: fixed;
+    }
+    thead th:nth-child(1) { width: 32%; }
+    thead th:nth-child(2) { width: 14%; }
+    thead th:nth-child(3) { width: 23%; }
+    thead th:nth-child(4) { width: 17%; }
+    thead th:nth-child(5) { width: 14%; }
+    thead th {
+      padding: 7px 8px;
+      text-align: left;
+      background: #1e2122;
+      color: #666;
+      font-weight: 600;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      border-bottom: 1px solid #2a2d2e;
+    }
+    tbody tr {
+      border-bottom: 1px solid #22262a;
+      transition: background 0.1s;
+    }
+    tbody tr:hover { background: #1f2324; }
+    td { padding: 7px 8px; vertical-align: top; }
+
+    .item-name { font-weight: 500; color: #e0e0e0; line-height: 1.3; word-break: break-word; }
+    .item-float { font-size: 10px; color: #666; margin-top: 2px; font-family: monospace; }
+
+    .price-cell { white-space: nowrap; }
+    .price-main { font-weight: 600; }
+    .price-sub  { font-size: 10px; color: #666; margin-top: 1px; }
+
+    .suggest-cell { }
+    .suggest-price { font-weight: 700; color: #4db5da; }
+    .suggest-net   { font-size: 11px; color: #4caf50; margin-top: 1px; font-weight: 600; }
+    .suggest-reason { font-size: 10px; color: #888; margin-top: 2px; line-height: 1.3; word-break: break-word; }
+    .suggest-profit { font-size: 11px; margin-top: 4px; }
+    .profit-col { white-space: nowrap; min-width: 110px; }
+    .profit-label { font-size: 9px; color: #555; text-transform: uppercase; letter-spacing: 0.4px; }
+    .profit-pos { color: #4caf50; font-weight: 700; font-size: 13px; }
+    .profit-neg { color: #f44336; font-weight: 700; font-size: 13px; }
+    .profit-sub { font-size: 10px; color: #888; margin-top: 1px; }
+
+    /* ── Position column ── */
+    .position-col { white-space: nowrap; text-align: center; vertical-align: middle !important; }
+    .pos-icon  { font-size: 18px; line-height: 1; }
+    .pos-label { font-weight: 700; font-size: 12px; margin-top: 2px; }
+    .pos-sub   { font-size: 10px; color: #666; margin-top: 2px; white-space: normal; line-height: 1.3; }
+    .pos-wide      { color: #4caf50; }
+    .pos-tight     { color: #f39c12; }
+    .pos-exit      { color: #f44336; }
+    .pos-underwater{ color: #9b59b6; }
+
+    /* ── Badges ── */
+    .badges { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+    .badge {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-overpriced    { background: #c0392b22; color: #e74c3c; border: 1px solid #c0392b44; }
+    .badge-slightly_high { background: #f39c1222; color: #f39c12; border: 1px solid #f39c1244; }
+    .badge-optimal       { background: #27ae6022; color: #2ecc71; border: 1px solid #27ae6044; }
+    .badge-underpriced   { background: #2980b922; color: #3498db; border: 1px solid #2980b944; }
+    .badge-below_cost    { background: #8e44ad22; color: #9b59b6; border: 1px solid #8e44ad44; }
+    .badge-underwater    { background: #c0392b33; color: #e74c3c; border: 1px solid #c0392b66; font-weight: 700; }
+    .badge-flood         { background: #e67e2222; color: #e67e22; border: 1px solid #e67e2244; }
+    .badge-trend_up      { background: #27ae6022; color: #2ecc71; border: 1px solid #27ae6044; }
+    .badge-trend_down    { background: #c0392b22; color: #e74c3c; border: 1px solid #c0392b44; }
+    .badge-slow          { background: #7f8c8d22; color: #95a5a6; border: 1px solid #7f8c8d44; }
+    .badge-stagger       { background: #2980b922; color: #3498db; border: 1px solid #2980b944; }
+    .badge-no_data       { background: #2c2c2c; color: #666; border: 1px solid #444; }
+    .badge-above_suggested { background: #e67e2222; color: #e67e22; border: 1px solid #e67e2244; }
+
+    /* ── Market data mini row ── */
+    .market-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px 10px;
+      margin-top: 3px;
+      font-size: 10px;
+      color: #666;
+    }
+    .market-item { white-space: nowrap; }
+    .market-val  { color: #aaa; }
+
+    /* ── Settings panel ── */
+    .settings-form {
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .form-section {
+      margin-bottom: 20px;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #666;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #2a2d2e;
+    }
+    .form-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 8px;
+    }
+    .form-row label {
+      width: 150px;
+      flex-shrink: 0;
+      font-size: 12px;
+      color: #aaa;
+    }
+    .form-row input {
+      flex: 1;
+      background: #2a2d2e;
+      border: 1px solid #3a3d3e;
+      border-radius: 4px;
+      padding: 5px 8px;
+      color: #e0e0e0;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    .form-row input:focus {
+      outline: none;
+      border-color: #4db5da;
+    }
+    .form-row .hint {
+      font-size: 10px;
+      color: #555;
+      margin-top: 2px;
+    }
+    .settings-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+      padding: 10px 16px;
+      border-top: 1px solid #2a2d2e;
+      background: #1a1d1e;
+    }
+
+    /* ── Log panel ── */
+    .log-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    .log-line { padding: 1px 0; line-height: 1.5; }
+    .log-line.ok   { color: #4caf50; }
+    .log-line.err  { color: #f44336; }
+    .log-line.info { color: #aaa; }
+    .log-line.warn { color: #f39c12; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #1a1d1e; }
+    ::-webkit-scrollbar-thumb { background: #3a3d3e; border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <span class="logo">Skinport Advisor</span>
+    <span class="version">v1.0</span>
+    <button id="btn-popout" title="Open as full tab" style="
+      margin-left:10px; background:none; border:1px solid #3a3d3e;
+      color:#888; border-radius:4px; padding:2px 7px; cursor:pointer;
+      font-size:11px; line-height:1.4;
+    ">↗ Tab</button>
+  </div>
+  <div class="header-left">
+    <div class="dot" id="dot"></div>
+    <span class="status-text" id="status-text">Ready</span>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="advisor">📊 Advisor</div>
+  <div class="tab" data-tab="settings">⚙️ Settings</div>
+  <div class="tab" data-tab="log">📋 Log</div>
+</div>
+
+<!-- ═══════════════ ADVISOR PANEL ═══════════════ -->
+<div class="panel active" id="panel-advisor">
+
+  <div class="advisor-toolbar">
+    <button class="btn btn-primary" id="btn-analyze">🔍 Analyze Listings</button>
+    <button class="btn btn-secondary" id="btn-refresh" title="Clear cache and re-fetch all data">↺ Refresh</button>
+    <select class="sort-select" id="sort-select" title="Sort listings">
+      <option value="urgency">⚡ Urgency</option>
+      <option value="price_desc">💰 Price: High → Low</option>
+      <option value="price_asc">💸 Price: Low → High</option>
+      <option value="profit_desc">📈 Profit %: High → Low</option>
+      <option value="profit_asc">📉 Profit %: Low → High</option>
+      <option value="duplicates">🔱 Duplicates first</option>
+      <option value="slow">🐢 Slow movers first</option>
+      <option value="underwater">🩸 Underwater first</option>
+    </select>
+    <div class="toolbar-stats">
+      <span><span class="stat-val" id="stat-listings">—</span> listings</span>
+      <span><span class="stat-val" id="stat-matched">—</span> matched</span>
+      <span><span class="stat-val" id="stat-overpriced">—</span> overpriced</span>
+    </div>
+  </div>
+
+  <div class="results-wrap" id="results-wrap">
+    <div class="empty-state">
+      <div class="icon">📊</div>
+      <div>Click <strong>Analyze Listings</strong> to get started</div>
+      <div style="font-size:11px;color:#444">Make sure you're logged in to Skinport</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════ SETTINGS PANEL ═══════════════ -->
+<div class="panel" id="panel-settings">
+  <div class="settings-form">
+
+    <div class="form-section">
+      <div class="section-title">Skinport Credentials</div>
+      <div class="form-row">
+        <label>Client ID</label>
+        <input type="text" id="sp-client-id" placeholder="Your Skinport API client ID" />
+      </div>
+      <div class="form-row">
+        <label>Client Secret</label>
+        <input type="password" id="sp-client-secret" placeholder="Your Skinport API client secret" />
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="section-title">Google Sheets</div>
+      <div class="form-row">
+        <label>Sheet ID</label>
+        <input type="text" id="sheet-id" placeholder="Google Sheet ID" />
+      </div>
+      <div class="form-row">
+        <label>Tab Name</label>
+        <input type="text" id="sheet-tab" placeholder="Investment" />
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="section-title">Pricing Rules</div>
+      <div class="form-row">
+        <label>Min margin %</label>
+        <input type="number" id="min-margin" value="5" min="0" max="100" step="1" />
+      </div>
+      <div class="form-row">
+        <label>Stagger gap %</label>
+        <input type="number" id="stagger-pct" value="15" min="1" max="50" step="1" />
+      </div>
+      <div class="form-row">
+        <label>Slow mover vol/7d</label>
+        <input type="number" id="slow-mover-vol" value="5" min="0" max="50" step="1" />
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="section-title">Flood Detection</div>
+      <div class="form-row">
+        <label>Qty spike threshold %</label>
+        <input type="number" id="flood-qty-pct" value="20" min="5" max="100" step="5" />
+      </div>
+      <div class="form-row">
+        <label>Price drop threshold %</label>
+        <input type="number" id="flood-price-pct" value="10" min="3" max="50" step="1" />
+      </div>
+    </div>
+
+  </div>
+  <div class="settings-actions">
+    <button class="btn btn-primary" id="btn-save">Save Settings</button>
+    <button class="btn btn-secondary" id="btn-clear-token">Clear Google Token</button>
+  </div>
+</div>
+
+<!-- ═══════════════ LOG PANEL ═══════════════ -->
+<div class="panel" id="panel-log">
+  <div class="log-wrap" id="log"></div>
+</div>
+
+<!-- Scripts -->
+<script src="config.js"></script>
+<script src="background.js"></script>
+<script src="skinport.js"></script>
+<script src="sheets.js"></script>
+<script src="pricing.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>
