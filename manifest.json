@@ -3,6 +3,7 @@
   "name": "Advisor",
   "version": "1.0.0",
   "description": "Price advisor for your Skinport listings. Compares your prices vs market data and your buy prices from Google Sheets.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAymh3lDkZCR2EsGYAW33TZXmmAfZ0RMgni3AfzPpO9PtQwt+/o9Qq8sqO3Es68kuTp1Vq9f5joNkdLVHjI2eRl7jiEp8JpazMb7kxNrWlitLy7qBQTQ3ffFsOwy1a0zQ+yDEv4Z+0140zBsXG2Nujs6l71Fyl9xEV0FqeNYGwcTRVqYATeKbYptRLOBpPM0vI+MuXzQ24zj3DEwhEbSbrB7zGDGWN5EwV+IWLHmCJAiU6bwEulE8YAsPhYI66N5J60ZgckdT+OBM7nBDeVTSlzd8mdWZw85KKVnf0y0eIAlh/LRPtCskCWqeO+LryxqeoghmdFwSfppo9rr+q58YVYwIDAQAB",
   "permissions": ["identity", "storage", "tabs"],
   "host_permissions": [
     "https://api.skinport.com/*",
