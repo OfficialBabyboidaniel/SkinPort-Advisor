@@ -88,9 +88,18 @@ function staggerPrice(copyIndex, marketMin, salesMedian7d, settings) {
   return +(salesMedian7d * (1 + (gap * (copyIndex - 1)) / 100)).toFixed(2);
 }
 
+// ─── Trade lock helpers ───────────────────────────────────────────────────────
+// Returns number of days remaining on a trade lock (0 if unlocked / past)
+function lockDaysRemaining(lockUntil) {
+  if (!lockUntil) return 0;
+  const ms = lockUntil - new Date();
+  if (ms <= 0) return 0;
+  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+}
+
 // ─── Main pricing function for one listing ────────────────────────────────────
 function analyzeItem({
-  listing,         // { name, float, priceSEK }
+  listing,         // { name, float, priceSEK, lockUntil }
   marketItem,      // from /v1/items
   history,         // from /v1/sales/history
   buyEntry,        // from Google Sheet { buySEK }
@@ -104,11 +113,18 @@ function analyzeItem({
     float:       listing.float,
     yourPrice:   listing.priceSEK,
     saleId:      listing.saleId,
+    lockUntil:   listing.lockUntil || null,  // Date or null
+    lockDays:    lockDaysRemaining(listing.lockUntil),
     badges:      [],
     suggested:   null,
     suggestedReason: '',
     analysis:    {},
   };
+
+  // ── Trade lock badge ──
+  if (result.lockDays > 0) {
+    result.badges.push('locked');
+  }
 
   // ── Market data ──
   const minPrice    = marketItem?.min_price    || null;
@@ -322,6 +338,7 @@ function analyzeAllListings({ listings, marketMap, historyMap, buyMap, cachedMar
   }
 
   // Sort by urgency: overpriced > below_cost > flood > trending_down > slightly_high > optimal
+  // Locked items sink below unlocked items of the same urgency level
   const urgency = r => {
     if (r.badges.includes('below_cost'))    return 0;
     if (r.badges.includes('flood'))         return 1;
@@ -332,7 +349,15 @@ function analyzeAllListings({ listings, marketMap, historyMap, buyMap, cachedMar
     if (r.badges.includes('optimal'))       return 6;
     return 7;
   };
-  results.sort((a, b) => urgency(a) - urgency(b));
+  results.sort((a, b) => {
+    const ua = urgency(a);
+    const ub = urgency(b);
+    if (ua !== ub) return ua - ub;
+    // Same urgency: locked items go below unlocked
+    const la = a.lockDays > 0 ? 1 : 0;
+    const lb = b.lockDays > 0 ? 1 : 0;
+    return la - lb;
+  });
 
   return results;
 }

@@ -14,9 +14,39 @@ const btnRefresh   = document.getElementById('btn-refresh');
 const btnSave      = document.getElementById('btn-save');
 const btnClearTok  = document.getElementById('btn-clear-token');
 const sortSelect   = document.getElementById('sort-select');
+const searchInput  = document.getElementById('search-input');
+const doneFilter   = document.getElementById('done-filter');
 
 // ── Last results cache (for re-sorting without re-fetching) ───────────────────
 let lastResults = [];
+
+// ── Done state ────────────────────────────────────────────────────────────────
+// Persisted in chrome.storage.local as an array of keys under 'advisor_done'
+// Key format: "ItemName||float6dp" or "ItemName||nofloat"
+let doneSet = new Set();
+
+const DONE_KEY = 'advisor_done';
+
+function makeDoneKey(name, float) {
+  const f = float && float !== 'null' && float !== '' ? parseFloat(float) : null;
+  return f != null && !isNaN(f) ? `${name}||${f.toFixed(6)}` : `${name}||nofloat`;
+}
+
+async function loadDoneSet() {
+  const r = await chrome.storage.local.get(DONE_KEY);
+  doneSet = new Set(r[DONE_KEY] || []);
+}
+
+async function toggleDone(name, float) {
+  const key = makeDoneKey(name, float);
+  if (doneSet.has(key)) {
+    doneSet.delete(key);
+  } else {
+    doneSet.add(key);
+  }
+  await chrome.storage.local.set({ [DONE_KEY]: [...doneSet] });
+  applySearchAndSort();
+}
 
 // Settings inputs
 const inpClientId   = document.getElementById('sp-client-id');
@@ -132,12 +162,17 @@ const BADGE_LABELS = {
   stagger:         '🔱 Stagger',
   no_data:         '❓ No data',
   above_suggested: '👁️ Low visibility',
+  locked:          '',  // rendered dynamically with days remaining — see renderBadges
 };
 
-function renderBadges(badges) {
-  return badges.map(b =>
-    `<span class="badge badge-${b}">${BADGE_LABELS[b] || b}</span>`
-  ).join('');
+function renderBadges(badges, lockDays) {
+  return badges.map(b => {
+    if (b === 'locked') {
+      const label = lockDays > 0 ? `🔒 ${lockDays}d left` : '🔒 Unlocking';
+      return `<span class="badge badge-locked">${label}</span>`;
+    }
+    return `<span class="badge badge-${b}">${BADGE_LABELS[b] || b}</span>`;
+  }).join('');
 }
 
 // ── Number formatting ─────────────────────────────────────────────────────────
@@ -167,7 +202,15 @@ function sortResults(results, mode) {
   const sorted = [...results];
   switch (mode) {
     case 'urgency':
-      sorted.sort((a, b) => urgency(a) - urgency(b));
+      sorted.sort((a, b) => {
+        const ua = urgency(a);
+        const ub = urgency(b);
+        if (ua !== ub) return ua - ub;
+        // Same urgency: locked items go below unlocked
+        const la = a.lockDays > 0 ? 1 : 0;
+        const lb = b.lockDays > 0 ? 1 : 0;
+        return la - lb;
+      });
       break;
     case 'price_desc':
       sorted.sort((a, b) => b.yourPrice - a.yourPrice);
@@ -214,30 +257,59 @@ function sortResults(results, mode) {
         return aIs - bIs;
       });
       break;
+    case 'locked':
+      sorted.sort((a, b) => {
+        const aLocked = a.lockDays > 0 ? 0 : 1;
+        const bLocked = b.lockDays > 0 ? 0 : 1;
+        if (aLocked !== bLocked) return aLocked - bLocked;
+        // Among locked items: sort by most days remaining first
+        return (b.lockDays || 0) - (a.lockDays || 0);
+      });
+      break;
   }
   return sorted;
 }
 
 // ── Render results table ──────────────────────────────────────────────────────
 function renderResults(results) {
-  if (!results.length) {
+  // Apply done filter
+  const filterMode = doneFilter ? doneFilter.value : 'new';
+  const visible = results.filter(r => {
+    const isDone = doneSet.has(makeDoneKey(r.name, r.float));
+    if (filterMode === 'new')  return !isDone;
+    if (filterMode === 'done') return isDone;
+    return true; // 'all'
+  });
+
+  if (!visible.length) {
+    const msg = filterMode === 'done'
+      ? 'No listings marked as done yet'
+      : filterMode === 'new'
+      ? '🎉 All listings marked as done!'
+      : 'No active listings found';
     resultsWrap.innerHTML = `
       <div class="empty-state">
         <div class="icon">🎉</div>
-        <div>No active listings found</div>
+        <div>${msg}</div>
       </div>`;
     return;
   }
 
-  // Stats
+  // Stats (always based on full results, not filtered)
   const overpriced = results.filter(r => r.badges.includes('overpriced')).length;
   const matched    = results.filter(r => r.analysis.buySEK).length;
   statListings.textContent = results.length;
   statMatched.textContent  = matched;
   statOver.textContent     = overpriced;
 
-  const rows = results.map(r => {
+  const rows = visible.map(r => {
     const a = r.analysis;
+    const isDone   = doneSet.has(makeDoneKey(r.name, r.float));
+    const rowClass = isDone ? 'row-done' : '';
+    const doneBtn  = `<button class="btn-done ${isDone ? 'is-done' : ''}"
+      data-name="${r.name.replace(/"/g, '&quot;')}"
+      data-float="${(r.float || '').replace(/"/g, '&quot;')}"
+      title="${isDone ? 'Mark as new' : 'Mark as done'}">✓</button>`;
     const floatStr = r.float && r.float !== 'null' && r.float !== ''
       ? `[${parseFloat(r.float).toFixed(4)}]`
       : '';
@@ -246,14 +318,38 @@ function renderResults(results) {
     const profitStr = a.profitSEK != null
       ? `<div class="price-sub">Net: ${fmt(a.netSEK)} SEK (${fmtPct(a.profitPct)})</div>`
       : '';
+    const buyPriceStr = a.buySEK
+      ? `<div class="price-sub" style="margin-top:3px;color:#444">Buy: ${fmt(a.buySEK)} SEK</div>`
+      : '';
+
+    // Break-even and floor lines for suggestion cell
+    // Break-even: list price where net received = buySEK
+    // For most items fee=8%, so breakEven = buySEK / 0.92
+    // If that result is ≥ 10000 then fee would be 6%, so use / 0.94 instead
+    let breakEven = null;
+    if (a.buySEK) {
+      const beStd = a.buySEK / 0.92;
+      breakEven = +(beStd >= 10000 ? a.buySEK / 0.94 : beStd).toFixed(2);
+    }
+    const marginPct = a.floor && a.buySEK
+      ? Math.round(((a.floor * (a.floor >= 10000 ? 0.94 : 0.92)) / a.buySEK - 1) * 100)
+      : 5;
+    const floorLine = a.buySEK && a.floor
+      ? `<div class="suggest-floor">Floor (${marginPct}% margin): ${fmt(a.floor)} SEK</div>`
+      : '';
+    const breakEvenLine = breakEven
+      ? `<div class="suggest-floor">Break-even: ${fmt(breakEven)} SEK</div>`
+      : '';
 
     // Suggested price + reason
     const netAtSuggested = r.suggested != null ? +(r.suggested * (r.suggested >= 10000 ? 0.94 : 0.92)).toFixed(2) : null;
     const suggestStr = r.suggested != null
       ? `<div class="suggest-price">${fmt(r.suggested)} SEK</div>
          <div class="suggest-net">→ ${fmt(netAtSuggested)} SEK net</div>
-         <div class="suggest-reason">${(r.suggestedReason || '').replace(' (', '<br><span style="color:#666">(').replace(/\)$/, ')</span>')}</div>`
-      : `<div style="color:#555;font-size:11px">${r.suggestedReason || '—'}</div>`;
+         <div class="suggest-reason">${(r.suggestedReason || '').replace(' (', '<br><span style="color:#666">(').replace(/\)$/, ')</span>')}</div>
+         ${floorLine}${breakEvenLine}`
+      : `<div style="color:#555;font-size:11px">${r.suggestedReason || '—'}</div>
+         ${floorLine}${breakEvenLine}`;
 
     // Profit column — always show net payout and profit vs buy price
     let profitCell = '';
@@ -282,39 +378,48 @@ function renderResults(results) {
       profitCell = `<span style="color:#444;font-size:10px">No sheet data</span>`;
     }
 
+    // Trade lock line (shown above position advice if locked)
+    const lockLine = r.lockDays > 0
+      ? `<div class="lock-line">🔒 Locked<br>ready in ${r.lockDays}d</div>`
+      : '';
+
     // Position / spread column — action recommendation combining spread + trend + volume
     let positionCell = '<span style="color:#444;font-size:10px">No sheet data</span>';
     if (a.buySEK) {
       const spreadPct = a.profitPctAtSuggested;
       if (spreadPct == null) {
-        positionCell = '<span style="color:#444;font-size:10px">No suggestion</span>';
+        positionCell = `${lockLine}<span style="color:#444;font-size:10px">No suggestion</span>`;
       } else if (spreadPct < 0) {
         positionCell = `
+          ${lockLine}
           <div class="pos-icon">💀</div>
           <div class="pos-label pos-underwater">Cut losses</div>
           <div class="pos-sub">Market dropped below your buy cost</div>`;
       } else if (spreadPct < 5) {
-        // Near breakeven — check if trending down, if so get out immediately
         const urgentExit = r.badges.includes('trend_down') || r.badges.includes('flood');
         positionCell = `
+          ${lockLine}
           <div class="pos-icon">🔴</div>
           <div class="pos-label pos-exit">${urgentExit ? 'Sell immediately' : 'Sell soon'}</div>
           <div class="pos-sub">${urgentExit ? 'Trend worsening, spread almost gone' : 'Near breakeven, don\'t wait longer'}</div>`;
       } else if (spreadPct < 15) {
-        // Tight spread — hold only if trending up, otherwise sell at median
         const holdable = r.badges.includes('trend_up');
         positionCell = `
+          ${lockLine}
           <div class="pos-icon">🟡</div>
           <div class="pos-label pos-tight">${holdable ? 'Hold briefly' : 'Sell at median'}</div>
           <div class="pos-sub">${holdable ? 'Trending up, may improve' : 'Thin margin, don\'t overprice'}</div>`;
       } else {
-        // Wide spread — check if slow mover, warn about liquidity risk
         const slowRisk = r.badges.includes('slow');
         positionCell = `
+          ${lockLine}
           <div class="pos-icon">🟢</div>
           <div class="pos-label pos-wide">Room to hold</div>
           <div class="pos-sub">${slowRisk ? 'Good margin but slow — price competitively' : 'Price above median, good position'}</div>`;
       }
+    } else if (r.lockDays > 0) {
+      // No sheet data but still locked — at least show lock info
+      positionCell = lockLine;
     }
     // Market info row
     const mktStr = `
@@ -336,21 +441,23 @@ function renderResults(results) {
       : `<div style="font-size:10px;color:#444;margin-top:3px">No sheet data</div>`;
 
     return `
-      <tr>
+      <tr class="${rowClass}">
         <td>
           <div class="item-name">${r.name}</div>
           ${floatStr ? `<div class="item-float">${floatStr}</div>` : ''}
-          <div class="badges">${renderBadges(r.badges)}</div>
+          <div class="badges">${renderBadges(r.badges, r.lockDays)}</div>
           ${mktStr}
           ${buyStr}
         </td>
         <td class="price-cell">
           <div class="price-main">${fmt(r.yourPrice)} SEK</div>
           ${profitStr}
+          ${buyPriceStr}
         </td>
         <td class="suggest-cell">${suggestStr}</td>
         <td class="profit-col">${profitCell}</td>
         <td class="position-col">${positionCell}</td>
+        <td style="text-align:center;vertical-align:middle">${doneBtn}</td>
       </tr>`;
   }).join('');
 
@@ -363,6 +470,7 @@ function renderResults(results) {
           <th>Suggestion</th>
           <th>Profit</th>
           <th>Position</th>
+          <th style="text-align:center">✓</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -512,12 +620,29 @@ async function analyze(forceRefresh = false) {
   setBusy(false);
 }
 
+// ── Done button delegation (MV3 blocks inline onclick) ───────────────────────
+resultsWrap.addEventListener('click', e => {
+  const btn = e.target.closest('.btn-done');
+  if (!btn) return;
+  toggleDone(btn.dataset.name, btn.dataset.float);
+});
+
+// ── Search filter ─────────────────────────────────────────────────────────────
+function applySearchAndSort() {
+  if (!lastResults.length) return;
+  const query = searchInput.value.trim().toLowerCase();
+  const filtered = query
+    ? lastResults.filter(r => r.name.toLowerCase().includes(query))
+    : lastResults;
+  renderResults(sortResults(filtered, sortSelect.value));
+}
+
 // ── Event listeners ───────────────────────────────────────────────────────────
 btnAnalyze.addEventListener('click', () => analyze(false));
 btnRefresh.addEventListener('click', () => analyze(true));
-sortSelect.addEventListener('change', () => {
-  if (lastResults.length) renderResults(sortResults(lastResults, sortSelect.value));
-});
+sortSelect.addEventListener('change', applySearchAndSort);
+searchInput.addEventListener('input', applySearchAndSort);
+doneFilter.addEventListener('change', applySearchAndSort);
 btnSave.addEventListener('click',    saveSettings);
 btnClearTok.addEventListener('click', clearGoogleToken);
 document.getElementById('btn-popout').addEventListener('click', () => {
@@ -525,4 +650,9 @@ document.getElementById('btn-popout').addEventListener('click', () => {
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-loadSettings();
+// If opened as a full tab (not the popup), expand to fill viewport
+if (window.outerWidth > 900) {
+  document.body.classList.add('full-tab');
+}
+
+loadDoneSet().then(() => loadSettings());

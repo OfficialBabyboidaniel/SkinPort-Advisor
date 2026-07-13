@@ -46,12 +46,22 @@ async function fetchMyListings() {
 
   return raw.map(item => {
     const rawPrice = item.price ?? item.salePrice ?? item.listing_price ?? 0;
+
+    // Trade lock: Skinport returns lock expiry as an ISO date string e.g. "2026-07-14T07:00:00.000Z"
+    const rawLock = item.lock ?? null;
+    let lockUntil = null;
+    if (rawLock) {
+      const d = new Date(rawLock);
+      if (!isNaN(d) && d > new Date()) lockUntil = d;
+    }
+
     return {
-      saleId:   item.id ?? item.saleId ?? null,
-      name:     item.marketHashName || item.market_hash_name || item.name || '',
-      float:    item.wear != null ? String(item.wear) : (item.float != null ? String(item.float) : ''),
-      priceSEK: +(rawPrice / 100).toFixed(2),   // Skinport sends price in öre (1/100 SEK)
-      currency: item.currency || 'SEK',
+      saleId:    item.id ?? item.saleId ?? null,
+      name:      item.marketHashName || item.market_hash_name || item.name || '',
+      float:     item.wear != null ? String(item.wear) : (item.float != null ? String(item.float) : ''),
+      priceSEK:  +(rawPrice / 100).toFixed(2),   // Skinport sends price in öre (1/100 SEK)
+      currency:  item.currency || 'SEK',
+      lockUntil, // Date object or null
     };
   });
 }
