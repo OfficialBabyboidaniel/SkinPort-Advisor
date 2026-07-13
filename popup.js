@@ -33,6 +33,18 @@ function makeDoneKey(name, float) {
 }
 
 async function loadDoneSet() {
+  // One-time migration: move done set from local → sync if not yet migrated
+  const migrationKey = 'advisor_done_migrated';
+  const migrated = await chrome.storage.local.get(migrationKey);
+  if (!migrated[migrationKey]) {
+    const local = await chrome.storage.local.get(DONE_KEY);
+    if (local[DONE_KEY]?.length) {
+      await chrome.storage.sync.set({ [DONE_KEY]: local[DONE_KEY] });
+      await chrome.storage.local.remove(DONE_KEY);
+    }
+    await chrome.storage.local.set({ [migrationKey]: true });
+  }
+
   const r = await chrome.storage.sync.get(DONE_KEY);
   doneSet = new Set(r[DONE_KEY] || []);
 }
