@@ -11,7 +11,7 @@
     "https://sheets.googleapis.com/*"
   ],
   "oauth2": {
-    "client_id": "650544767085-frhankjq4n3o74mb038h4db52sg3sujh.apps.googleusercontent.com",
+    "client_id": "650544767085-tntifrua460qafu776fh5r062eakbtrk.apps.googleusercontent.com",
     "scopes": ["https://www.googleapis.com/auth/spreadsheets.readonly"]
   },
   "action": {
