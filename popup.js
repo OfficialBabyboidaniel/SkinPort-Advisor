@@ -21,7 +21,7 @@ const doneFilter   = document.getElementById('done-filter');
 let lastResults = [];
 
 // ── Done state ────────────────────────────────────────────────────────────────
-// Persisted in chrome.storage.local as an array of keys under 'advisor_done'
+// Persisted in chrome.storage.sync — shared across all Chrome profiles/devices
 // Key format: "ItemName||float6dp" or "ItemName||nofloat"
 let doneSet = new Set();
 
@@ -33,7 +33,7 @@ function makeDoneKey(name, float) {
 }
 
 async function loadDoneSet() {
-  const r = await chrome.storage.local.get(DONE_KEY);
+  const r = await chrome.storage.sync.get(DONE_KEY);
   doneSet = new Set(r[DONE_KEY] || []);
 }
 
@@ -44,7 +44,7 @@ async function toggleDone(name, float) {
   } else {
     doneSet.add(key);
   }
-  await chrome.storage.local.set({ [DONE_KEY]: [...doneSet] });
+  await chrome.storage.sync.set({ [DONE_KEY]: [...doneSet] });
   applySearchAndSort();
 }
 
@@ -508,6 +508,17 @@ async function analyze(forceRefresh = false) {
       return;
     }
     log(`Found ${listings.length} active listing(s)`, 'ok');
+
+    // ── Prune done set: remove keys for items no longer listed (sold) ──
+    const activeKeys = new Set(listings.map(l => makeDoneKey(l.name, l.float)));
+    const before = doneSet.size;
+    for (const key of [...doneSet]) {
+      if (!activeKeys.has(key)) doneSet.delete(key);
+    }
+    if (doneSet.size !== before) {
+      await chrome.storage.sync.set({ [DONE_KEY]: [...doneSet] });
+      log(`Pruned ${before - doneSet.size} sold item(s) from done list`, 'info');
+    }
 
     // ── Step 2: Get unique names for API batching ──
     const uniqueNames = [...new Set(listings.map(l => l.name))];
