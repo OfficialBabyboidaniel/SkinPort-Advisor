@@ -522,10 +522,13 @@ async function analyze(forceRefresh = false) {
     log(`Found ${listings.length} active listing(s)`, 'ok');
 
     // ── Prune done set: remove keys for items no longer listed (sold) ──
-    const activeKeys = new Set(listings.map(l => makeDoneKey(l.name, l.float)));
+    // Match by name only — float precision can vary between API calls
+    // causing false pruning. If the item name isn't in listings at all, it's sold.
+    const activeNames = new Set(listings.map(l => l.name.trim()));
     const before = doneSet.size;
     for (const key of [...doneSet]) {
-      if (!activeKeys.has(key)) doneSet.delete(key);
+      const name = key.split('||')[0];
+      if (!activeNames.has(name)) doneSet.delete(key);
     }
     if (doneSet.size !== before) {
       await chrome.storage.sync.set({ [DONE_KEY]: [...doneSet] });
