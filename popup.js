@@ -622,6 +622,17 @@ async function analyze(forceRefresh = false) {
       settings: s,
     });
 
+    // ── Diagnostic: log raw data for each item ──
+    results.forEach(r => {
+      const a = r.analysis;
+      const lockStr = r.lockDays > 0 ? ` | LOCKED ${r.lockDays}d` : ' | unlocked';
+      log(`📦 ${r.name} [${r.float || 'no float'}]${lockStr}`, 'info');
+      log(`   Market → min:${a.minPrice} med7d:${a.salesMed7} med30d:${a.salesMed30} qty:${a.qty} vol7d:${a.salesVol7}`, 'info');
+      log(`   Yours:${r.yourPrice} SEK | Suggested:${r.suggested} SEK | Badges: ${r.badges.join(', ')}`, 'info');
+      log(`   Reason: ${r.suggestedReason}`, 'info');
+      if (a.buySEK) log(`   Buy:${a.buySEK} Floor:${a.floor} BreakEven:${a.buySEK ? +(a.buySEK/0.92).toFixed(2) : '—'}`, 'info');
+    });
+
     // ── Step 8: Render ──
     lastResults = results;
     renderResults(sortResults(results, sortSelect.value));
