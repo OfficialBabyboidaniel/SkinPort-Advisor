@@ -81,9 +81,23 @@ function isSlowMover(history, settings) {
 
 // ─── Stagger tiers for duplicate copies ──────────────────────────────────────
 // copyIndex: 0-based (0=first copy, 1=second, etc.)
-function staggerPrice(copyIndex, marketMin, salesMedian7d, settings) {
-  const gap = settings.staggerPct ?? 15; // % above median for each extra copy
-  if (copyIndex === 0) return +(marketMin * 0.99).toFixed(2);
+// trend: 'up' | 'down' | 'stable' | 'unknown'
+// For copy 0 (sell first): only use min-1% if min is within 15% of median
+// AND market isn't trending up. Otherwise anchor to median to avoid
+// throwing away margin on an outlier min price.
+function staggerPrice(copyIndex, marketMin, salesMedian7d, trend, settings) {
+  const gap = settings.staggerPct ?? 15;
+
+  if (copyIndex === 0) {
+    // Only undercut min if it's reasonably close to median (within 15%)
+    // and market isn't trending up
+    const minFarBelowMedian = marketMin < salesMedian7d * 0.85;
+    if (trend === 'up' || minFarBelowMedian) {
+      // Anchor to median instead — don't give away margin
+      return +(salesMedian7d * 0.98).toFixed(2); // 2% below median to still sell first
+    }
+    return +(marketMin * 0.99).toFixed(2);
+  }
   if (copyIndex === 1) return +salesMedian7d.toFixed(2);
   return +(salesMedian7d * (1 + (gap * (copyIndex - 1)) / 100)).toFixed(2);
 }
@@ -218,7 +232,7 @@ function analyzeItem({
       else if (copyIndex === 1) rawSuggested = +priceAnchor.toFixed(2);
       else                      rawSuggested = +(priceAnchor * (1 + (gap * (copyIndex - 1)) / 100)).toFixed(2);
     } else {
-      rawSuggested = staggerPrice(copyIndex, minPrice || priceAnchor, priceAnchor, settings);
+      rawSuggested = staggerPrice(copyIndex, minPrice || priceAnchor, priceAnchor, trend, settings);
     }
     result.suggestedReason = `Copy ${copyIndex + 1}/${totalCopies} — staggered pricing (anchor: ${anchorLabel})`;
   } else {
@@ -321,7 +335,15 @@ function analyzeAllListings({ listings, marketMap, historyMap, buyMap, cachedMar
     const history    = historyMap?.get(name) || null;
     const cachedMkt  = cachedMarketSnapshot?.[name] || null;
 
-    copies.forEach((listing, idx) => {
+    // Sort copies: unlocked first, locked last (by days remaining ascending)
+    // This ensures unlocked copies get lower stagger tiers (sell sooner)
+    const sortedCopies = [...copies].sort((a, b) => {
+      const la = a.lockUntil ? lockDaysRemaining(a.lockUntil) : 0;
+      const lb = b.lockUntil ? lockDaysRemaining(b.lockUntil) : 0;
+      return la - lb;
+    });
+
+    sortedCopies.forEach((listing, idx) => {
       const buyEntry = lookupBuyPrice(buyMap, listing.name, listing.float);
       const result   = analyzeItem({
         listing,
