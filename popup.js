@@ -173,8 +173,9 @@ const BADGE_LABELS = {
   slow:            '🐢 Slow mover',
   stagger:         '🔱 Stagger',
   no_data:         '❓ No data',
-  above_suggested: '👁️ Low visibility',
-  locked:          '',  // rendered dynamically with days remaining — see renderBadges
+  above_suggested:   '👁️ Low visibility',
+  incoming_supply:   '📦 Incoming supply',
+  locked:            '',  // rendered dynamically with days remaining — see renderBadges
 };
 
 function renderBadges(badges, lockDays) {
@@ -540,8 +541,8 @@ async function analyze(forceRefresh = false) {
     log(`Fetching market data for ${uniqueNames.length} unique item(s)…`, 'info');
 
     // ── Step 3: Fetch market items (cached 5min) ──
-    const marketMap = await fetchMarketItems();
-    log(`Market data loaded (${marketMap.size} items)`, 'ok');
+    const { tradableMap, allMap: marketMap } = await fetchMarketItems();
+    log(`Market data loaded (${marketMap.size} items tradable=0, ${tradableMap.size} tradable=1)`, 'ok');
 
     // ── Step 4: Batch fetch sales history (max 8 names per call) ──
     // Split into chunks of 8 to respect rate limits
@@ -616,6 +617,7 @@ async function analyze(forceRefresh = false) {
     const results = analyzeAllListings({
       listings,
       marketMap,
+      tradableMap,
       historyMap,
       buyMap,
       cachedMarketSnapshot,
@@ -627,7 +629,7 @@ async function analyze(forceRefresh = false) {
       const a = r.analysis;
       const lockStr = r.lockDays > 0 ? ` | LOCKED ${r.lockDays}d` : ' | unlocked';
       log(`📦 ${r.name} [${r.float || 'no float'}]${lockStr}`, 'info');
-      log(`   Market → min:${a.minPrice} med7d:${a.salesMed7} med30d:${a.salesMed30} qty:${a.qty} vol7d:${a.salesVol7}`, 'info');
+      log(`   Market → min:${a.minPrice} (tradable:${a.minPriceTradable ?? '—'} all:${a.minPriceAll ?? '—'}) med7d:${a.salesMed7} med30d:${a.salesMed30} qty:${a.qty} vol7d:${a.salesVol7}`, 'info');
       log(`   Yours:${r.yourPrice} SEK | Suggested:${r.suggested} SEK | Badges: ${r.badges.join(', ')}`, 'info');
       log(`   Reason: ${r.suggestedReason}`, 'info');
       if (a.buySEK) log(`   Buy:${a.buySEK} Floor:${a.floor} BreakEven:${a.buySEK ? +(a.buySEK/0.92).toFixed(2) : '—'}`, 'info');

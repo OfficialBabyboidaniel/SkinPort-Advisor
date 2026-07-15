@@ -67,21 +67,44 @@ async function fetchMyListings() {
 }
 
 // ─── Fetch market-wide item data (min, median, suggested, qty) ────────────────
-// Returns a Map: marketHashName → item object
+// Fetches both tradable=1 (buyable now) and tradable=0 (all including locked)
+// Returns { tradableMap, allMap } — both Map: marketHashName → item object
 async function fetchMarketItems() {
-  const cacheKey = 'market_items';
-  const cached = await cacheGet(cacheKey);
-  if (cached) return new Map(cached);
+  const cacheKeyT = 'market_items_tradable';
+  const cacheKeyA = 'market_items_all';
 
-  const resp = await fetch(`${SP_ITEMS_URL}?app_id=730&currency=SEK&tradable=1`, {
-    headers: { 'Accept': 'application/json' }
-  });
-  if (!resp.ok) throw new Error(`Skinport /v1/items: HTTP ${resp.status}`);
-  const list = await resp.json();
+  const [cachedT, cachedA] = await Promise.all([
+    cacheGet(cacheKeyT),
+    cacheGet(cacheKeyA),
+  ]);
 
-  const map = new Map(list.map(item => [item.market_hash_name, item]));
-  await cacheSet(cacheKey, [...map.entries()]);
-  return map;
+  let tradableMap, allMap;
+
+  if (cachedT) {
+    tradableMap = new Map(cachedT);
+  } else {
+    const resp = await fetch(`${SP_ITEMS_URL}?app_id=730&currency=SEK&tradable=1`, {
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!resp.ok) throw new Error(`Skinport /v1/items (tradable=1): HTTP ${resp.status}`);
+    const list = await resp.json();
+    tradableMap = new Map(list.map(item => [item.market_hash_name, item]));
+    await cacheSet(cacheKeyT, [...tradableMap.entries()]);
+  }
+
+  if (cachedA) {
+    allMap = new Map(cachedA);
+  } else {
+    const resp = await fetch(`${SP_ITEMS_URL}?app_id=730&currency=SEK&tradable=0`, {
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!resp.ok) throw new Error(`Skinport /v1/items (tradable=0): HTTP ${resp.status}`);
+    const list = await resp.json();
+    allMap = new Map(list.map(item => [item.market_hash_name, item]));
+    await cacheSet(cacheKeyA, [...allMap.entries()]);
+  }
+
+  return { tradableMap, allMap };
 }
 
 // ─── Fetch sales history for a batch of item names ────────────────────────────

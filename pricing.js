@@ -113,14 +113,15 @@ function lockDaysRemaining(lockUntil) {
 
 // ─── Main pricing function for one listing ────────────────────────────────────
 function analyzeItem({
-  listing,         // { name, float, priceSEK, lockUntil }
-  marketItem,      // from /v1/items
-  history,         // from /v1/sales/history
-  buyEntry,        // from Google Sheet { buySEK }
-  copyIndex,       // 0-based: which copy of this item is this? (0=first listed)
-  totalCopies,     // how many copies you own total
-  cachedMarket,    // previous snapshot for flood detection
-  settings,        // user settings
+  listing,              // { name, float, priceSEK, lockUntil }
+  marketItem,           // from /v1/items tradable=0 (all incl. locked)
+  marketItemTradable,   // from /v1/items tradable=1 (buyable now only)
+  history,              // from /v1/sales/history
+  buyEntry,             // from Google Sheet { buySEK }
+  copyIndex,            // 0-based: which copy of this item is this? (0=first listed)
+  totalCopies,          // how many copies you own total
+  cachedMarket,         // previous snapshot for flood detection
+  settings,             // user settings
 }) {
   const result = {
     name:        listing.name,
@@ -141,9 +142,21 @@ function analyzeItem({
   }
 
   // ── Market data ──
-  const minPrice    = marketItem?.min_price    || null;
-  const suggested   = marketItem?.suggested_price || null;
-  const qty         = marketItem?.quantity     || 0;
+  // For unlocked listings: use tradable=1 min (real buyable competition)
+  // For locked listings:   use tradable=0 min (what market looks like when it unlocks)
+  const isLocked        = result.lockDays > 0;
+  const activeItem      = isLocked ? marketItem : (marketItemTradable || marketItem);
+  const minPrice        = activeItem?.min_price        || null;
+  const suggested       = activeItem?.suggested_price  || null;
+  const qty             = activeItem?.quantity         || 0;
+
+  // Incoming supply: locked listings dragging min below tradable min
+  const minPriceTradable = marketItemTradable?.min_price || null;
+  const minPriceAll      = marketItem?.min_price         || null;
+  const incomingSupply   = !isLocked
+    && minPriceTradable && minPriceAll
+    && minPriceAll < minPriceTradable * 0.90; // locked min >10% cheaper than tradable min
+
   const salesMed7   = history?.last_7_days?.median  || null;
   const salesMed30  = history?.last_30_days?.median || null;
   const salesVol7   = history?.last_7_days?.volume  ?? 0;
@@ -151,6 +164,8 @@ function analyzeItem({
 
   result.analysis = {
     minPrice,
+    minPriceTradable,
+    minPriceAll,
     suggested,
     qty,
     salesMed7,
@@ -159,6 +174,11 @@ function analyzeItem({
     salesVol30,
     dailyRate: +(salesVol30 / 30).toFixed(1),
   };
+
+  // ── Incoming supply badge ──
+  if (incomingSupply) {
+    result.badges.push('incoming_supply');
+  }
 
   // ── Buy price / cost floor ──
   const buySEK = buyEntry?.buySEK || null;
@@ -320,7 +340,7 @@ function analyzeItem({
 }
 
 // ─── Analyse all listings ─────────────────────────────────────────────────────
-function analyzeAllListings({ listings, marketMap, historyMap, buyMap, cachedMarketSnapshot, settings }) {
+function analyzeAllListings({ listings, marketMap, tradableMap, historyMap, buyMap, cachedMarketSnapshot, settings }) {
   // Group listings by name to detect duplicates
   const groups = new Map();
   for (const listing of listings) {
@@ -331,12 +351,12 @@ function analyzeAllListings({ listings, marketMap, historyMap, buyMap, cachedMar
   const results = [];
 
   for (const [name, copies] of groups) {
-    const marketItem = marketMap?.get(name) || null;
-    const history    = historyMap?.get(name) || null;
-    const cachedMkt  = cachedMarketSnapshot?.[name] || null;
+    const marketItem         = marketMap?.get(name)     || null;
+    const marketItemTradable = tradableMap?.get(name)   || null;
+    const history            = historyMap?.get(name)    || null;
+    const cachedMkt          = cachedMarketSnapshot?.[name] || null;
 
     // Sort copies: unlocked first, locked last (by days remaining ascending)
-    // This ensures unlocked copies get lower stagger tiers (sell sooner)
     const sortedCopies = [...copies].sort((a, b) => {
       const la = a.lockUntil ? lockDaysRemaining(a.lockUntil) : 0;
       const lb = b.lockUntil ? lockDaysRemaining(b.lockUntil) : 0;
@@ -348,6 +368,7 @@ function analyzeAllListings({ listings, marketMap, historyMap, buyMap, cachedMar
       const result   = analyzeItem({
         listing,
         marketItem,
+        marketItemTradable,
         history,
         buyEntry,
         copyIndex:    idx,
