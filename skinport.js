@@ -73,7 +73,7 @@ async function fetchMarketItems() {
   const cached = await cacheGet(cacheKey);
   if (cached) return new Map(cached);
 
-  const resp = await fetch(`${SP_ITEMS_URL}?app_id=730&currency=SEK&tradable=0`, {
+  const resp = await fetch(`${SP_ITEMS_URL}?app_id=730&currency=SEK&tradable=1`, {
     headers: { 'Accept': 'application/json' }
   });
   if (!resp.ok) throw new Error(`Skinport /v1/items: HTTP ${resp.status}`);
